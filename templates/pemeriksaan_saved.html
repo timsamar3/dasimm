@@ -1,0 +1,378 @@
+{% extends "layout_sidebar.html" %}
+{% block title %}Data Pemeriksaan Tersimpan{% endblock %}
+
+{% block content %}
+<h4 class="mb-3">📂 Data Pemeriksaan Tersimpan</h4>
+
+<div class="mb-3">
+    <button class="btn btn-secondary btn-sm" onclick="history.back()">
+        ← Kembali
+    </button>
+</div>
+
+<!-- Alert -->
+<div id="alertContainer" class="mb-3"></div>
+
+{% if data|length == 0 %}
+    <div class="alert alert-warning">
+        Belum ada data yang disimpan.
+    </div>
+{% else %}
+
+<div class="mb-3">
+    <a href="{{ url_for('pemeriksaan.download_saved') }}" class="btn btn-success btn-sm">
+        ⬇ Download Excel
+    </a>
+
+    <a href="{{ url_for('pemeriksaan.clear_saved') }}"
+       class="btn btn-danger btn-sm"
+       onclick="return confirm('Hapus semua data tersimpan?')">
+        🗑️ Hapus Semua
+    </a>
+</div>
+
+<div class="table-responsive">
+<table class="table table-bordered table-striped" id="savedTable">
+    <thead class="thead-dark">
+        <tr>
+            <th style="width:130px;">Aksi</th>
+            <th>No</th>
+            {% for col in DISPLAY_COLUMNS %}
+                <th>{{ col|replace('_', ' ') }}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody id="tableBody">
+        {% for row in data %}
+        <tr id="row-{{ loop.index0 }}" data-index="{{ loop.index0 }}">
+            <td>
+                <div class="btn-group btn-group-sm">
+                    <button type="button"
+                            class="btn btn-warning btn-edit"
+                            data-index="{{ loop.index0 }}"
+                            data-toggle="modal"
+                            data-target="#editModal">
+                        ✏️ Edit
+                    </button>
+                    <button type="button"
+                            class="btn btn-danger btn-delete"
+                            data-index="{{ loop.index0 }}">
+                        🗑️ Hapus
+                    </button>
+                </div>
+            </td>
+
+            <!-- No -->
+            <td>{{ loop.index + 1 }}</td>
+
+            {% for col_value in row %}
+            <td class="editable"
+                data-column="{{ DISPLAY_COLUMNS[loop.index0] if loop.index0 < DISPLAY_COLUMNS|length else '' }}">
+                {% if col_value in [None, 'nan', 'None', 'null', '', 'NaN'] %}
+                {% else %}
+                    {{ col_value }}
+                {% endif %}
+            </td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<!-- MODAL EDIT -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">✏️ Edit Data</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <form id="editForm">
+                    <input type="hidden" id="editIndex">
+
+                    <div class="row">
+                        {% for col in DISPLAY_COLUMNS %}
+                        <div class="col-md-6 mb-3">
+                            <label class="font-weight-bold">
+                                {{ col|replace('_', ' ') }}
+                            </label>
+                            <input type="text"
+                                   class="form-control form-control-sm"
+                                   id="edit-{{ col }}"
+                                   name="{{ col }}">
+                        </div>
+                        {% endfor %}
+                    </div>
+                </form>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                <button class="btn btn-primary" id="btnSaveEdit">Simpan Perubahan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+$(function () {
+    const columns = [
+        'CLNT_ID','CLNT_NAME','CURR_LIC_NUM','LINK_ID','STN_NAME',
+        'STASIUN_LAWAN','SID_LONG','SID_LAT','FREQ','FREQ_PAIR',
+        'BWIDTH','EQ_MDL','CITY'
+    ];
+    
+    let isLoading = false;
+
+    function showAlert(msg, type='success', duration=4000){
+        $('#alertContainer').html(`
+            <div class="alert alert-${type} alert-dismissible fade show">
+                ${msg}
+                <button type="button" class="close" data-dismiss="alert">&times;</button>
+            </div>
+        `);
+        if(type === 'success' && duration > 0){
+            setTimeout(() => $('.alert').alert('close'), duration);
+        }
+    }
+    
+    function showLoading(show = true) {
+        if (show) {
+            $('#alertContainer').html(`
+                <div class="alert alert-info">
+                    <div class="spinner-border spinner-border-sm mr-2" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    Memproses...
+                </div>
+            `);
+            isLoading = true;
+        } else {
+            isLoading = false;
+        }
+    }
+
+    $('.btn-edit').click(function(){
+        let idx = $(this).data('index');
+        $('#editIndex').val(idx);
+        
+        // Isi form dengan data saat ini
+        const row = $(`#row-${idx}`);
+        columns.forEach(col => {
+            const cell = row.find(`td[data-column="${col}"]`);
+            $('#edit-' + col).val(cell.text().trim());
+        });
+    });
+
+    // DELETE FUNCTION
+    $(document).on('click', '.btn-delete', function(){
+        if (isLoading) return;
+        
+        let idx = $(this).data('index');
+        const row = $(`#row-${idx}`);
+        const rowNumber = row.find('td:nth-child(2)').text();
+        
+        Swal.fire({
+            title: 'Hapus Data?',
+            html: `Yakin hapus data <strong>No. ${rowNumber}</strong>?<br>
+                  <small>Data tidak bisa dikembalikan</small>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Ya, Hapus!',
+            cancelButtonText: 'Batal',
+            reverseButtons: true,
+            width: '400px'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                showLoading();
+                
+                $.ajax({
+                    url: "{{ url_for('pemeriksaan.delete_single') }}",
+                    method: "POST",
+                    contentType: "application/json",
+                    data: JSON.stringify({ index: parseInt(idx) }),
+                    success: function(res) {
+                        showLoading(false);
+                        
+                        if (res.success) {
+                            // Hapus row dari tabel tanpa reload
+                            row.fadeOut(300, function() {
+                                $(this).remove();
+                                
+                                // Update nomor urut
+                                updateRowNumbers();
+                                
+                                showAlert(`✅ Data No. ${rowNumber} berhasil dihapus.`);
+                                
+                                // Jika tidak ada data lagi, reload untuk tampilkan pesan kosong
+                                if (res.remaining_count === 0) {
+                                    setTimeout(() => location.reload(), 1000);
+                                }
+                            });
+                        } else {
+                            showAlert(`❌ ${res.message || 'Gagal menghapus data'}`, 'danger');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        showLoading(false);
+                        let errorMsg = 'Terjadi kesalahan koneksi';
+                        try {
+                            const res = JSON.parse(xhr.responseText);
+                            errorMsg = res.message || error;
+                        } catch (e) {
+                            errorMsg = error;
+                        }
+                        showAlert(`❌ ${errorMsg}`, 'danger');
+                    }
+                });
+            }
+        });
+    });
+    
+    // Fungsi untuk update nomor urut setelah delete
+    function updateRowNumbers() {
+        $('#tableBody tr').each(function(index) {
+            $(this).attr('id', 'row-' + index);
+            $(this).find('td:nth-child(2)').text(index + 1);
+            $(this).find('.btn-edit, .btn-delete').data('index', index);
+        });
+    }
+
+    $('#btnSaveEdit').click(function(){
+        let idx = $('#editIndex').val();
+        let data = {};
+
+        columns.forEach(c => data[c] = $('#edit-'+c).val());
+
+        showLoading();
+        
+        $.ajax({
+            url: "{{ url_for('pemeriksaan.update_single') }}",
+            method: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ index: parseInt(idx), data: data }),
+            success: function(res){
+                showLoading(false);
+                
+                if(res.success){
+                    $('#editModal').modal('hide');
+                    showAlert('✅ Data berhasil diperbarui');
+                    
+                    // Update data di tabel tanpa reload
+                    const row = $(`#row-${idx}`);
+                    columns.forEach(col => {
+                        const cell = row.find(`td[data-column="${col}"]`);
+                        const value = res.data[col] || '';
+                        cell.text(value);
+                        
+                        // Jika value kosong, tampilkan empty
+                        if (!value || value === 'nan' || value === 'None' || value === 'null') {
+                            cell.html('');
+                        }
+                    });
+                } else {
+                    showAlert(`❌ ${res.message || 'Gagal menyimpan perubahan'}`, 'danger');
+                }
+            },
+            error: function(xhr, status, error) {
+                showLoading(false);
+                let errorMsg = 'Terjadi kesalahan koneksi';
+                try {
+                    const res = JSON.parse(xhr.responseText);
+                    errorMsg = res.message || error;
+                } catch (e) {
+                    errorMsg = error;
+                }
+                showAlert(`❌ ${errorMsg}`, 'danger');
+            }
+        });
+    });
+    
+    // Tambahkan event listener untuk enter di modal
+    $('#editModal').on('keypress', function(e) {
+        if (e.which === 13 && !$(e.target).is('textarea')) {
+            e.preventDefault();
+            $('#btnSaveEdit').click();
+        }
+    });
+
+});
+</script>
+
+<style>
+/* ==========================
+   SEMBUNYIKAN KOLOM NO (VIEW ONLY)
+========================== */
+#savedTable thead th:nth-child(2),
+#savedTable tbody td:nth-child(2) {
+    display: none !important;
+}
+
+/* UI */
+#savedTable th, #savedTable td {
+    font-size: 0.9rem;
+    vertical-align: middle;
+}
+
+#savedTable th:first-child,
+#savedTable td:first-child {
+    width: 130px;
+    white-space: nowrap;
+}
+
+.modal-body {
+    max-height: 65vh;
+    overflow-y: auto;
+}
+
+/* Hover effect */
+#savedTable tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.05);
+}
+
+/* Button styling */
+.btn-group-sm .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+/* Alert styling */
+.alert {
+    transition: all 0.3s ease;
+}
+
+/* Loading spinner */
+.spinner-border {
+    width: 1rem;
+    height: 1rem;
+    border-width: 0.2em;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .btn-group {
+        flex-direction: column;
+    }
+    
+    .btn-group .btn {
+        margin-bottom: 2px;
+        width: 100%;
+    }
+    
+    .modal-body .row .col-md-6 {
+        flex: 0 0 100%;
+        max-width: 100%;
+    }
+}
+</style>
+{% endblock %}

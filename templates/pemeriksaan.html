@@ -1,0 +1,504 @@
+{% extends "layout_sidebar.html" %}
+{% block title %}Data Pemeriksaan{% endblock %}
+
+{% block content %}
+<h4 class="mb-3">📝 Data Pemeriksaan</h4>
+
+<!-- PANEL PENCARIAN -->
+<button class="btn btn-info btn-sm mb-3" data-toggle="collapse" data-target="#panelCari">
+    🔍 Pencarian
+</button>
+
+<div id="panelCari" class="collapse mb-3">
+    <div class="card card-body">
+        <div class="form-row">
+            <input id="client_id" class="form-control col-md-3 mb-2" placeholder="Client ID">
+            <input id="client_name" class="form-control col-md-3 mb-2" placeholder="Client Name">
+            <input id="link_id" class="form-control col-md-3 mb-2" placeholder="Link ID">
+            <input id="stn_name" class="form-control col-md-3 mb-2" placeholder="STN Name">
+            <input id="stasiun_lawan" class="form-control col-md-3 mb-2" placeholder="Stasiun Lawan">
+            <input id="freq" class="form-control col-md-3 mb-2" placeholder="Freq">
+            <input id="city" class="form-control col-md-3 mb-2" placeholder="Kota/Kab">
+        </div>
+
+        <button id="btnCari" class="btn btn-primary btn-sm">Cari</button>
+        <button id="btnReset" class="btn btn-secondary btn-sm">Reset</button>
+    </div>
+</div>
+
+<!-- TOMBOL AKSI -->
+<div class="mb-3">
+    <button id="btnDownloadFilter" class="btn btn-success btn-sm">
+        ⬇ Download Hasil Filter
+    </button>
+
+    <button id="btnSimpan" class="btn btn-success btn-sm">
+        💾 Simpan Data Terpilih
+    </button>
+    
+    <button id="btnResetChecks" class="btn btn-warning btn-sm">
+        🔄 Reset 
+    </button>
+
+    <a href="{{ url_for('pemeriksaan.saved_page') }}" class="btn btn-warning btn-sm">
+        📂 Data Tersimpan
+    </a>
+</div>
+
+<!-- TABEL -->
+<div class="table-responsive">
+<table id="tablePemeriksaan" class="table table-bordered table-striped nowrap" style="width:100%">
+    <thead class="thead-dark">
+        <tr>
+            <th>
+                <input type="checkbox" id="checkAll">
+            </th>
+            <th>Client ID</th>
+            <th>Client Name</th>
+            <th>No ISR</th>
+            <th>Link ID</th>
+            <th>STN Name</th>
+            <th>Stasiun Lawan</th>
+            <th>LONG</th>
+            <th>LAT</th>
+            <th>Freq</th>
+            <th>Freq Pair</th>
+            <th>Bw</th>
+            <th>EQ_MDL</th>
+            <th>Kota/Kab</th>
+        </tr>
+    </thead>
+</table>
+</div>
+
+<!-- Modal untuk notifikasi -->
+<div class="modal fade" id="notificationModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Informasi</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="modalMessage">
+                <!-- Pesan akan dimuat di sini -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-dismiss="modal">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(function () {
+    // Variabel untuk menyimpan data terceklis
+    let selectedRows = new Map(); // Gunakan Map bukan Set untuk lebih konsisten
+    let allSelectedData = new Map();
+    
+    // Fungsi untuk membersihkan nilai
+    function cleanValue(value) {
+        if (value === null || value === undefined || 
+            value === 'nan' || value === 'None' || 
+            value === 'null' || value === 'undefined' ||
+            value === 'NaN') {
+            return '';
+        }
+        // Pastikan selalu string dan trim whitespace
+        return String(value).trim();
+    }
+    
+    // Fungsi untuk membuat objek data dari row
+    function createRowObject(rowData) {
+        // rowData adalah array dari DataTables
+        return {
+            CLNT_ID: cleanValue(rowData[1]),
+            CLNT_NAME: cleanValue(rowData[2]),
+            CURR_LIC_NUM: cleanValue(rowData[3]),
+            LINK_ID: cleanValue(rowData[4]),
+            STN_NAME: cleanValue(rowData[5]),
+            STASIUN_LAWAN: cleanValue(rowData[6]),
+            SID_LONG: cleanValue(rowData[7]),
+            SID_LAT: cleanValue(rowData[8]),
+            FREQ: cleanValue(rowData[9]),
+            FREQ_PAIR: cleanValue(rowData[10]),
+            BWIDTH: cleanValue(rowData[11]),
+            EQ_MDL: cleanValue(rowData[12]),
+            CITY: cleanValue(rowData[13])
+        };
+    }
+    
+    // PERBAIKAN: Fungsi untuk mendapatkan ID unik yang KONSISTEN
+    function getRowId(rowObj) {
+        // Buat string dari semua nilai dalam urutan yang konsisten
+        const values = [
+            rowObj.CLNT_ID,
+            rowObj.CLNT_NAME,
+            rowObj.CURR_LIC_NUM,
+            rowObj.LINK_ID,
+            rowObj.STN_NAME,
+            rowObj.STASIUN_LAWAN,
+            rowObj.SID_LONG,
+            rowObj.SID_LAT,
+            rowObj.FREQ,
+            rowObj.FREQ_PAIR,
+            rowObj.BWIDTH,
+            rowObj.EQ_MDL,
+            rowObj.CITY
+        ];
+        
+        // Hash yang lebih stabil - gunakan join dengan delimiter khusus
+        const combined = values.map(v => v || '').join('|||');
+        
+        // Simple hash function yang konsisten
+        let hash = 0;
+        for (let i = 0; i < combined.length; i++) {
+            const char = combined.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return 'row_' + Math.abs(hash).toString(36);
+    }
+
+    let table = $('#tablePemeriksaan').DataTable({
+        serverSide: true,
+        processing: true,
+        scrollX: true,
+        searching: false,
+        ajax: {
+            url: "{{ url_for('pemeriksaan.api') }}",
+            data: function (d) {
+                $('#panelCari input').each(function () {
+                    d[this.id] = this.value;
+                });
+            }
+        },
+        columnDefs: [{
+            targets: 0,
+            orderable: false,
+            render: function (data, type, row, meta) {
+                const rowObj = createRowObject(row);
+                const rowId = getRowId(rowObj);
+                
+                // Cek apakah row ini sudah terpilih
+                const isChecked = selectedRows.has(rowId);
+                
+                // Simpan rowId di DataTables untuk akses nanti
+                if (type === 'display') {
+                    // Simpan rowId di meta object
+                    if (!meta.settings._rowIds) {
+                        meta.settings._rowIds = {};
+                    }
+                    meta.settings._rowIds[meta.row] = rowId;
+                }
+                
+                return `<input type="checkbox" class="row-check" data-rowid="${rowId}" ${isChecked ? 'checked' : ''}>`;
+            }
+        }],
+        createdRow: function(row, data, dataIndex) {
+            // Handle tampilan untuk data kosong
+            $(row).find('td').each(function(index) {
+                if (index > 0) { // Skip checkbox column
+                    const cellValue = $(this).text();
+                    if (!cellValue || cellValue === 'nan' || cellValue === 'None' || 
+                        cellValue === 'null' || cellValue === 'NaN') {
+                        $(this).text(''); // Kosongkan tampilan
+                    }
+                }
+            });
+            
+            // PERBAIKAN: Set data-rowid pada tr juga untuk akses mudah
+            const rowObj = createRowObject(data);
+            const rowId = getRowId(rowObj);
+            $(row).attr('data-rowid', rowId);
+        },
+        drawCallback: function(settings) {
+            // PERBAIKAN: Sync checkbox berdasarkan selectedRows
+            $('#tablePemeriksaan tbody tr').each(function() {
+                const rowId = $(this).attr('data-rowid');
+                if (rowId) {
+                    const checkbox = $(this).find('.row-check');
+                    const isChecked = selectedRows.has(rowId);
+                    checkbox.prop('checked', isChecked);
+                    
+                    // Update data-rowid pada checkbox juga
+                    checkbox.attr('data-rowid', rowId);
+                }
+            });
+            
+            // Update checkAll status
+            updateCheckAllStatus();
+            
+            // Debug: log selected rows count
+            console.log('Selected rows:', selectedRows.size);
+        }
+    });
+
+    // Cari
+    $('#btnCari').click(function () {
+        table.ajax.reload();
+    });
+
+    // Reset filter
+    $('#btnReset').click(function () {
+        $('#panelCari input').val('');
+        table.ajax.reload();
+    });
+
+    // Reset semua ceklis
+    $('#btnResetChecks').click(function() {
+        selectedRows.clear();
+        allSelectedData.clear();
+        $('.row-check').prop('checked', false);
+        $('#checkAll').prop('checked', false);
+        
+        // Tampilkan notifikasi
+        $('#modalMessage').html('<p>Semua checkbox telah direset.</p>');
+        $('#notificationModal').modal('show');
+        
+        console.log('All checkboxes reset');
+    });
+
+    // Fungsi untuk update status checkAll
+    function updateCheckAllStatus() {
+        const visibleRows = $('#tablePemeriksaan tbody tr').length;
+        const visibleChecked = $('#tablePemeriksaan tbody .row-check:checked').length;
+        $('#checkAll').prop('checked', visibleRows > 0 && visibleRows === visibleChecked);
+        $('#checkAll').prop('indeterminate', visibleChecked > 0 && visibleChecked < visibleRows);
+    }
+
+    // Select All di halaman yang sedang dilihat
+    $('#checkAll').on('change', function () {
+        const isChecked = $(this).prop('checked');
+        
+        $('#tablePemeriksaan tbody tr').each(function() {
+            const row = $(this);
+            const checkbox = row.find('.row-check');
+            const rowId = row.attr('data-rowid');
+            
+            if (!rowId) return;
+            
+            // Dapatkan data dari DataTables
+            const rowData = table.row(row).data();
+            if (!rowData) return;
+            
+            const rowObj = createRowObject(rowData);
+            
+            if (isChecked) {
+                selectedRows.set(rowId, true);
+                allSelectedData.set(rowId, rowObj);
+            } else {
+                selectedRows.delete(rowId);
+                allSelectedData.delete(rowId);
+            }
+            
+            checkbox.prop('checked', isChecked);
+        });
+        
+        updateCheckAllStatus();
+        console.log('Select All:', isChecked ? 'All checked' : 'All unchecked');
+    });
+
+    // Checkbox per row
+    $('#tablePemeriksaan').on('change', '.row-check', function () {
+        const checkbox = $(this);
+        const rowId = checkbox.attr('data-rowid');
+        const row = checkbox.closest('tr');
+        
+        if (!rowId) {
+            // Jika tidak ada rowId di checkbox, coba ambil dari tr
+            rowId = row.attr('data-rowid');
+            if (rowId) {
+                checkbox.attr('data-rowid', rowId);
+            } else {
+                // Jika masih tidak ada, generate dari data
+                const rowData = table.row(row).data();
+                if (!rowData) return;
+                
+                const rowObj = createRowObject(rowData);
+                const newRowId = getRowId(rowObj);
+                row.attr('data-rowid', newRowId);
+                checkbox.attr('data-rowid', newRowId);
+                rowId = newRowId;
+            }
+        }
+        
+        const rowData = table.row(row).data();
+        if (!rowData) return;
+        
+        const rowObj = createRowObject(rowData);
+        
+        if (checkbox.prop('checked')) {
+            selectedRows.set(rowId, true);
+            allSelectedData.set(rowId, rowObj);
+            console.log('Checked row:', rowId, rowObj.CLNT_ID);
+        } else {
+            selectedRows.delete(rowId);
+            allSelectedData.delete(rowId);
+            console.log('Unchecked row:', rowId);
+        }
+        
+        updateCheckAllStatus();
+    });
+
+    // Simpan Data Terpilih
+    $('#btnSimpan').click(function () {
+        if (selectedRows.size === 0) {
+            $('#modalMessage').html('<p class="text-warning">Pilih data terlebih dahulu!</p>');
+            $('#notificationModal').modal('show');
+            return;
+        }
+
+        // Kumpulkan semua data dari allSelectedData
+        let rowsToSave = Array.from(allSelectedData.values());
+        
+        console.log('Data yang akan disimpan:', rowsToSave.length, 'rows');
+        
+        // Tampilkan loading
+        $('#modalMessage').html(`
+            <div class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="sr-only">Loading...</span>
+                </div>
+                <p class="mt-2">Menyimpan ${rowsToSave.length} data...</p>
+            </div>
+        `);
+        $('#notificationModal').modal('show');
+        
+        $.ajax({
+            url: "{{ url_for('pemeriksaan.save_selected') }}",
+            method: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ rows: rowsToSave }),
+            success: function (res) {
+                let message = '';
+                
+                console.log('Response dari server:', res);
+                
+                switch(res.status) {
+                    case 'success':
+                        message = `<p class="text-success">✅ ${res.message}</p>`;
+                        // Reset semua ceklis setelah berhasil
+                        selectedRows.clear();
+                        allSelectedData.clear();
+                        $('.row-check').prop('checked', false);
+                        $('#checkAll').prop('checked', false);
+                        break;
+                        
+                    case 'partial':
+                        message = `
+                            <div class="alert alert-warning">
+                                <h5>⚠️ Hasil Penyimpanan</h5>
+                                <p>${res.message}</p>
+                                <hr>
+                                <p><strong>Detail:</strong></p>
+                                <ul class="mb-0">
+                                    <li>✅ <strong>${res.new_count}</strong> data baru disimpan</li>
+                                    <li>⚠️ <strong>${res.duplicate_count}</strong> data sudah ada</li>
+                                </ul>
+                            </div>
+                        `;
+                        // Reset semua checkbox
+                        selectedRows.clear();
+                        allSelectedData.clear();
+                        $('.row-check').prop('checked', false);
+                        $('#checkAll').prop('checked', false);
+                        break;
+                        
+                    case 'duplicate_all':
+                        message = `<div class="alert alert-danger">❌ ${res.message}</div>`;
+                        // Tidak reset checkbox karena tidak ada yang disimpan
+                        break;
+                        
+                    case 'warning':
+                        message = `<div class="alert alert-warning">⚠️ ${res.message}</div>`;
+                        break;
+                        
+                    case 'error':
+                        message = `<div class="alert alert-danger">❌ ${res.message}</div>`;
+                        break;
+                        
+                    default:
+                        message = `<div class="alert alert-info">${res.message}</div>`;
+                }
+                
+                $('#modalMessage').html(message);
+            },
+            error: function(xhr, status, error) {
+                console.error('Error saving data:', xhr.responseText);
+                let errorMsg = 'Terjadi kesalahan tidak diketahui';
+                
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMsg = response.message || error;
+                } catch (e) {
+                    errorMsg = error;
+                }
+                
+                $('#modalMessage').html(`
+                    <div class="alert alert-danger">
+                        <h5>❌ Terjadi Kesalahan!</h5>
+                        <p>${errorMsg}</p>
+                        <p class="mb-0"><small>Status: ${xhr.status}</small></p>
+                    </div>
+                `);
+            }
+        });
+    });
+
+    // Download Filter
+    $('#btnDownloadFilter').click(function () {
+        let params = [];
+        $('#panelCari input').each(function () {
+            if (this.value) {
+                params.push(this.id + '=' + encodeURIComponent(this.value));
+            }
+        });
+        window.location.href = "/pemeriksaan/download-filtered?" + params.join('&');
+    });
+
+    // Inisialisasi awal
+    updateCheckAllStatus();
+    
+    // Debug: log initial state
+    console.log('Table initialized');
+});
+</script>
+
+<style>
+.table-scroll {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.nowrap {
+    white-space: nowrap;
+}
+
+/* Style untuk checkbox indeterminate */
+input[type="checkbox"]:indeterminate:before {
+    content: "–";
+    display: block;
+    text-align: center;
+    line-height: 1em;
+}
+
+/* Style untuk modal */
+.modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.alert ul {
+    margin-bottom: 0;
+}
+
+/* Style untuk tr yang terpilih */
+tr[data-rowid] .row-check:checked {
+    background-color: #e8f4fd;
+}
+</style>
+{% endblock %}

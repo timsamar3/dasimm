@@ -1,0 +1,71 @@
+{% extends "layout_sidebar.html" %}
+{% block title %}Upload Excel{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+
+    <h4>📤 Upload Data Excel (Admin)</h4>
+    <p class="text-muted">
+        Gunakan halaman ini untuk menambah atau memperbarui database menggunakan file Excel.
+    </p>
+    <hr>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="close" data-dismiss="alert">
+              <span>&times;</span>
+            </button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+
+            <form method="post" enctype="multipart/form-data">
+
+                <!-- FILE -->
+                <div class="form-group">
+                    <label class="font-weight-bold">📁 File Excel (.xlsx)</label>
+                    <input type="file" name="file" class="form-control-file" accept=".xlsx" required>
+                    <small class="form-text text-muted">
+
+                    </small>
+                </div>
+
+                <hr>
+
+                <!-- MODE -->
+                <div class="form-group">
+                    <label class="font-weight-bold">⚙️ Mode Upload</label>
+                    <select name="mode" class="form-control" required>
+                        <option value="append">
+                            ➕ Tambah Data (data lama tetap aman)
+                        </option>
+                        <option value="reset">
+                            ⚠️ Upload Ulang (hapus semua data lama)
+                        </option>
+                    </select>
+                    <small class="form-text text-warning">
+                        ⚠️ Mode <b>Upload Ulang</b> akan menghapus seluruh data sebelumnya.
+                    </small>
+                </div>
+
+                <button class="btn btn-primary mt-2">
+                    ⬆ Upload & Proses Data
+                </button>
+            </form>
+
+        </div>
+    </div>
+
+    <a href="{{ url_for('home') }}" class="btn btn-secondary btn-sm">
+        ⬅ Kembali ke Home
+    </a>
+
+</div>
+{% endblock %}

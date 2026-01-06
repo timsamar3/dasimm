@@ -1,0 +1,61 @@
+{% extends "layout_sidebar.html" %}
+{% block title %}Edit Data{% endblock %}
+
+{% block content %}
+
+<!-- MODAL -->
+<div class="modal fade show" style="display:block; background:rgba(0,0,0,.4)">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content shadow">
+
+            <!-- HEADER -->
+            <div class="modal-header">
+                <h5 class="modal-title">✏️ Edit Data</h5>
+                <a href="{{ url_for('admin_data.data_table') }}" class="close">&times;</a>
+            </div>
+
+            <!-- FORM -->
+            <form method="post">
+
+                <!-- kirim no TANPA ditampilkan -->
+                <input type="hidden" name="no" value="{{ no }}">
+
+                <!-- BODY (SCROLLABLE) -->
+                <div class="modal-body" style="max-height:65vh; overflow-y:auto;">
+
+                    <div class="row">
+                        {% for key, value in data.items() %}
+                            {% if key not in ['No', 'no'] %}
+                            <div class="col-md-6 mb-3">
+                                <label class="font-weight-bold">{{ key }}</label>
+                                <input
+                                    type="text"
+                                    name="{{ key }}"
+                                    value="{{ value }}"
+                                    class="form-control"
+                                    autocomplete="off"
+                                >
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+
+                </div>
+
+                <!-- FOOTER -->
+                <div class="modal-footer">
+                    <a href="{{ url_for('admin_data.data_table') }}" class="btn btn-secondary">
+                        Cancel
+                    </a>
+                    <button type="submit" class="btn btn-success">
+                        Submit
+                    </button>
+                </div>
+
+            </form>
+
+        </div>
+    </div>
+</div>
+
+{% endblock %}

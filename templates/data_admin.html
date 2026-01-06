@@ -1,0 +1,595 @@
+{% extends "layout_sidebar.html" %}
+{% block title %}Data Admin{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3">
+    <!-- HEADER -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">🗂️ Data Admin</h4>
+        <div>
+            <button id="btnReload" class="btn btn-secondary btn-sm">
+                🔄 Muat Ulang
+            </button>
+            <a href="{{ url_for('upload.upload_excel') }}" class="btn btn-primary btn-sm ml-2">
+                📤 Upload Data
+            </a>
+        </div>
+    </div>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show mb-3">
+            {{ message }}
+            <button type="button" class="close" data-dismiss="alert">
+              <span>&times;</span>
+            </button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Status Info -->
+    <div id="statusAlert" class="alert alert-info mb-3">
+        <span id="statusText">Memuat data...</span>
+    </div>
+
+    <!-- TABLE CARD -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white py-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="btn-group">
+                    <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                            data-toggle="dropdown">
+                        📊 Tampilan
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-right">
+                        <a class="dropdown-item" href="#" id="showAll">Tampilkan Semua Kolom</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            <!-- SEARCH BOX - SATU SAJA -->
+            <div class="p-3 border-bottom">
+                <div class="form-group mb-0">
+                    <input type="text" id="globalSearch" class="form-control form-control-sm"
+                           placeholder="Ketik untuk mencari di semua kolom...">
+                </div>
+            </div>
+
+            <!-- TABLE -->
+            <div class="table-responsive" style="max-height: 65vh; min-height: 400px;">
+                <table id="table_admin" class="table table-sm table-hover table-bordered mb-0" style="width:100%">
+                    <thead class="thead-light">
+                        <tr>
+                            <th style="width:80px; min-width:80px;" class="text-center">Aksi</th>
+                            <th style="width:60px; min-width:60px;" class="text-center">No</th>
+                            {% for col in columns if col != 'no' %}
+                                <th class="column-{{ col|replace(' ', '_')|replace('-', '_')|lower }}">
+                                    {{ col }}
+                                </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Data akan dimuat oleh DataTables -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- TABLE FOOTER - SATU INFO SAJA -->
+            <div class="card-footer bg-white py-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="small text-muted">
+                        <span id="rowCount">Memuat...</span>
+                    </div>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                                data-toggle="dropdown">
+                            📄 Baris per halaman
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-right">
+                            <a class="dropdown-item" href="#" data-length="25">25 baris</a>
+                            <a class="dropdown-item" href="#" data-length="50">50 baris</a>
+                            <a class="dropdown-item" href="#" data-length="100">100 baris</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="loading-overlay" style="display:none;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="sr-only">Loading...</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+$(function () {
+    let table;
+    let isEssentialView = false;
+
+    // Status display function
+    function showStatus(message, type) {
+        const alert = $('#statusAlert');
+        const text = $('#statusText');
+
+        alert.removeClass('alert-info alert-success alert-warning alert-danger');
+        alert.addClass('alert-' + type);
+        text.text(message);
+
+        // Auto-hide success messages after 5 seconds
+        if (type === 'success') {
+            setTimeout(function() {
+                if (text.text() === message) {
+                    alert.removeClass('alert-' + type).addClass('alert-info');
+                    text.text('Siap');
+                }
+            }, 5000);
+        }
+    }
+
+    // Show loading
+    function showLoading() {
+        $('#loadingOverlay').fadeIn(200);
+    }
+
+    // Hide loading
+    function hideLoading() {
+        $('#loadingOverlay').fadeOut(200);
+    }
+
+    // Update row count - SATU INFORMASI SAJA
+    function updateRowInfo(total, filtered, showing, start) {
+        let text = '';
+        if (filtered === 0) {
+            text = 'Tidak ada data ditemukan';
+        } else {
+            const end = Math.min(start + showing, filtered);
+            text = `Menampilkan ${start + 1}–${end} dari ${filtered} data`;
+            if (filtered !== total) {
+                text += ` (dari total ${total} data)`;
+            }
+        }
+        $('#rowCount').html(text);
+    }
+
+    // Setup DataTable columns
+    let columns = [
+        {
+            data: "aksi",
+            orderable: false,
+            searchable: false,
+            className: "text-center align-middle",
+            width: "80px"
+        },
+        {
+            data: "no",
+            className: "text-center align-middle",
+            width: "60px"
+        }
+    ];
+
+    // Define essential columns (prioritaskan kolom penting)
+    const essentialColumns = [
+        'CLNT_ID', 'CLNT_NAME', 'LINK_ID', 'STN_NAME',
+        'FREQ', 'CITY', 'CURR_LIC_NUM'
+    ];
+
+    {% for col in columns if col != 'no' %}
+        columns.push({
+            data: "{{ col }}",
+            className: "align-middle",
+            render: function(data, type) {
+                if (type === 'display') {
+                    // Handle empty/null values
+                    if (!data || data === 'nan' || data === 'None' || data === 'null' || data === 'undefined') {
+                        return '<span class="text-muted">-</span>';
+                    }
+                    // Truncate long text
+                    if (data.length > 50) {
+                        return '<span title="' + data + '">' + data.substring(0, 47) + '...</span>';
+                    }
+                    return data;
+                }
+                return data;
+            },
+            visible: essentialColumns.includes("{{ col }}")  // Show essential columns by default
+        });
+    {% endfor %}
+
+    // Initialize DataTable - HILANGKAN SEARCH DEFAULT
+    table = $('#table_admin').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: {
+            url: "{{ url_for('admin_data.api') }}",
+            type: "POST",
+            contentType: "application/json",
+            data: function(d) {
+                return JSON.stringify({
+                    draw: d.draw,
+                    start: d.start,
+                    length: d.length,
+                    "search[value]": d.search.value,
+                    "search[regex]": d.search.regex,
+                    "order[0][column]": d.order && d.order.length > 0 ? d.order[0].column : 0,
+                    "order[0][dir]": d.order && d.order.length > 0 ? d.order[0].dir : "asc"
+                });
+            },
+            dataSrc: function (json) {
+                console.log("Admin API Response:", json);
+
+                if (json.error) {
+                    showStatus("Error loading data: " + json.error, "danger");
+                    return [];
+                }
+
+                // Update status
+                const showing = json.data ? json.data.length : 0;
+                let statusMsg = `Menampilkan ${showing} data`;
+                if (json.recordsFiltered !== json.recordsTotal) {
+                    statusMsg += ` (difilter dari ${json.recordsTotal} total data)`;
+                }
+                showStatus(statusMsg, "success");
+
+                return json.data;
+            },
+            error: function(xhr, error, thrown) {
+                console.error("AJAX Error:", xhr.responseText);
+                let errorMsg = "Error loading data";
+
+                if (xhr.status === 414) {
+                    errorMsg = "Pencarian terlalu panjang. Coba pencarian yang lebih spesifik.";
+                } else if (xhr.responseText) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        errorMsg = response.error || xhr.responseText.substring(0, 100);
+                    } catch (e) {
+                        errorMsg = xhr.responseText.substring(0, 100);
+                    }
+                }
+
+                showStatus(errorMsg, "danger");
+                $('#rowCount').html('Error memuat data');
+            }
+        },
+        columns: columns,
+
+        scrollX: true,
+        scrollCollapse: true,
+        scrollY: "55vh",
+        scroller: true,
+
+        pageLength: 25,
+        lengthMenu: false,  // HILANGKAN DROPDOWN LENGTH DEFAULT
+        order: [[1, "asc"]], // Default sort by 'no'
+
+        language: {
+            search: "",  // HILANGKAN SEARCH DEFAULT
+            searchPlaceholder: "",
+            lengthMenu: "",
+            zeroRecords: "Tidak ada data yang ditemukan",
+            info: "",  // HILANGKAN INFO DEFAULT
+            infoEmpty: "",
+            infoFiltered: "",
+            paginate: {
+                first: "«",
+                last: "»",
+                next: "›",
+                previous: "‹"
+            },
+            processing: "Memproses...",
+            loadingRecords: "Memuat data..."
+        },
+
+        initComplete: function() {
+            showStatus("Data berhasil dimuat", "success");
+            hideLoading();
+
+            // Custom search box - SATU SAJA
+            const searchInput = $('#globalSearch');
+            let searchTimeout;
+            searchInput.on('keyup', function() {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    table.search(this.value).draw();
+                }, 500);
+            });
+        },
+
+        drawCallback: function() {
+            // Style table rows
+            $('tr').css('cursor', 'pointer');
+
+            // Hover effect
+            $('#table_admin tbody tr').hover(
+                function() {
+                    $(this).addClass('table-active');
+                },
+                function() {
+                    $(this).removeClass('table-active');
+                }
+            );
+
+            // Update row info - SATU INFORMASI SAJA
+            const pageInfo = table.page.info();
+            updateRowInfo(
+                pageInfo.recordsTotal,
+                pageInfo.recordsDisplay,
+                pageInfo.length,
+                pageInfo.start
+            );
+        }
+    });
+
+    // VIEW TOGGLE FUNCTIONS
+    $('#showAll').click(function(e) {
+        e.preventDefault();
+        isEssentialView = false;
+        table.columns().every(function() {
+            this.visible(true);
+        });
+        showStatus("Semua kolom ditampilkan", "info");
+    });
+
+    $('#showEssential').click(function(e) {
+        e.preventDefault();
+        isEssentialView = true;
+        table.columns().every(function(index) {
+            // Skip first 2 columns (aksi, no)
+            if (index >= 2) {
+                const column = table.column(index);
+                const header = column.header().textContent;
+                this.visible(essentialColumns.includes(header));
+            }
+        });
+        showStatus("Hanya kolom penting ditampilkan", "info");
+    });
+
+    // PAGE LENGTH CHANGER - SATU DROPDOWN SAJA
+    $('[data-length]').click(function(e) {
+        e.preventDefault();
+        const length = $(this).data('length');
+        table.page.len(length).draw();
+        showStatus(`Menampilkan ${length} data per halaman`, "info");
+    });
+
+    // Reload button
+    $('#btnReload').click(function () {
+        showLoading();
+        showStatus("Memuat ulang data...", "info");
+        table.ajax.reload(function() {
+            hideLoading();
+        }, false);
+    });
+
+    // Konfirmasi hapus
+    $(document).on('click', '.delete-btn', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+
+        let url = $(this).attr('href');
+
+        Swal.fire({
+            title: 'Hapus data?',
+            text: 'Data tidak bisa dikembalikan setelah dihapus',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            cancelButtonText: 'Batal',
+            confirmButtonText: 'Ya, Hapus!',
+            reverseButtons: true,
+            width: '400px'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                showLoading();
+                showStatus("Menghapus data...", "info");
+                window.location.href = url;
+            }
+        });
+    });
+
+    // Row click - go to edit
+    $(document).on('click', '#table_admin tbody tr', function(e) {
+        if (!$(e.target).closest('a, button').length) {
+            const editBtn = $(this).find('a.btn-warning');
+            if (editBtn.length) {
+                window.location.href = editBtn.attr('href');
+            }
+        }
+    });
+
+    // Auto-close alerts after 5 seconds
+    setTimeout(() => {
+        $('.alert:not(#statusAlert)').alert('close');
+    }, 5000);
+
+    // Initial loading
+    showLoading();
+    showStatus("Memuat data...", "info");
+});
+</script>
+
+<style>
+/* Loading overlay */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.loading-overlay .spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* Table styling */
+.table-sm th,
+.table-sm td {
+    padding: 0.5rem !important;
+    font-size: 0.875rem;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.05);
+}
+
+.table-active {
+    background-color: rgba(0, 123, 255, 0.1) !important;
+}
+
+/* Fixed header */
+.table-responsive {
+    position: relative;
+}
+
+.dataTables_scrollHead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.dataTables_scrollHead th {
+    background-color: #f8f9fa !important;
+    border-bottom: 2px solid #dee2e6 !important;
+    font-weight: 600;
+}
+
+/* Scrollbar styling */
+.table-responsive::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Card styling */
+.card {
+    border: 1px solid rgba(0,0,0,.125);
+}
+
+.card-header {
+    border-bottom: 1px solid rgba(0,0,0,.125);
+    background-color: rgba(248,249,250,0.8);
+}
+
+/* Button styling */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+}
+
+/* Form controls */
+.form-control-sm {
+    height: calc(1.8125rem + 2px);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    border-radius: 0.25rem;
+}
+
+.form-control-sm:focus {
+    border-color: #4dabf7;
+    box-shadow: 0 0 0 0.2rem rgba(77, 171, 247, 0.25);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .d-flex {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+
+    .d-flex > div {
+        margin-top: 10px;
+    }
+
+    .table-responsive {
+        font-size: 0.8rem;
+    }
+
+    .table-sm th,
+    .table-sm td {
+        padding: 0.3rem !important;
+    }
+
+    .btn-sm {
+        margin-bottom: 5px;
+    }
+}
+
+/* Animation for status alerts */
+.alert {
+    transition: all 0.3s ease;
+}
+
+/* Column highlighting on hover */
+.table th:hover {
+    background-color: rgba(0,0,0,0.05);
+}
+
+/* Action buttons container */
+.text-center.align-middle {
+    white-space: nowrap;
+}
+
+.text-center.align-middle a {
+    margin: 0 2px;
+    display: inline-block;
+}
+
+/* Search box styling */
+#globalSearch {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23999' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 12px center;
+    background-size: 16px;
+    padding-left: 40px;
+    border-color: #ced4da;
+}
+
+#globalSearch:focus {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%234dabf7' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z'/%3E%3C/svg%3E");
+}
+
+/* Card footer styling */
+.card-footer {
+    background-color: rgba(248,249,250,0.8);
+    border-top: 1px solid rgba(0,0,0,.125);
+}
+</style>
+{% endblock %}

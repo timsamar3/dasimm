@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Sistem Informasi</title>
+
+    <!-- Meta viewport untuk responsif -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap -->
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+
+    <!-- DataTables -->
+    <link rel="stylesheet"
+          href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap4.min.css">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <!-- JS -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap4.min.js"></script>
+
+    <style>
+        body {
+            background: #f4f6f9;
+        }
+
+        /* Sidebar desktop */
+        .sidebar-fixed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 250px;
+            height: 100vh;
+            background: #343a40;
+            color: white;
+            padding: 15px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-fixed h5 {
+            font-weight: bold;
+        }
+
+        .sidebar-fixed .nav-link {
+            color: #f8f9fa;
+            border-radius: 5px;
+            padding: 8px 10px;
+            margin-bottom: 3px;
+            transition: all 0.3s;
+        }
+
+        .sidebar-fixed .nav-link:hover {
+            background: #495057;
+            transform: translateX(5px);
+        }
+
+        .sidebar-fixed .nav-link.active {
+            background: #007bff;
+            color: white;
+        }
+
+        /* Content wrapper desktop */
+        .content-wrapper {
+            margin-left: 250px;
+            padding: 20px;
+            width: calc(100% - 250px);
+        }
+
+        /* Scrollable table */
+        .table-scroll {
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        /* ===== RESPONSIVE MOBILE ===== */
+        @media (max-width: 768px) {
+            .sidebar-fixed {
+                position: relative;
+                width: 100%;
+                height: auto;
+                padding: 10px;
+            }
+            .content-wrapper {
+                margin-left: 0;
+                width: 100%;
+                padding: 10px;
+            }
+            .sidebar-fixed .nav-link {
+                margin-bottom: 2px;
+                padding: 6px 8px;
+            }
+        }
+
+        /* User info */
+        .user-info {
+            margin-top: 20px;
+            padding: 10px;
+            background: #495057;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- TOGGLE BUTTON MOBILE -->
+<nav class="navbar navbar-dark bg-dark d-md-none">
+    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#sidebarMenu">
+        <i class="fas fa-bars"></i> Menu
+    </button>
+    <span class="navbar-brand ml-2">Sistem Pemeriksaan</span>
+</nav>
+
+<!-- SIDEBAR -->
+<div class="collapse d-md-block sidebar-fixed" id="sidebarMenu">
+    <h5 class="mb-4"><i class="fas fa-bars"></i> MENU</h5>
+
+    <ul class="nav flex-column">
+
+        <!-- HOME -->
+        <li class="nav-item">
+            <a href="{{ url_for('home') }}" class="nav-link {% if request.endpoint == 'home' %}active{% endif %}">
+                <i class="fas fa-home"></i> Home
+            </a>
+        </li>
+
+        <!-- DATA SIMS -->
+        <li class="nav-item">
+            <a href="{{ url_for('data_sims.page') }}" class="nav-link {% if 'data_sims' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-folder"></i> Data SIMS
+            </a>
+        </li>
+
+        <!-- DATA PEMERIKSAAN -->
+        <li class="nav-item">
+            <a href="{{ url_for('pemeriksaan.index') }}" class="nav-link {% if 'pemeriksaan' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-search"></i> Pemeriksaan
+            </a>
+        </li>
+
+        <!-- TAMBAHKAN INI: DATA ADMIN (HANYA UNTUK ADMIN) -->
+        {% if session.get("role") == "admin" %}
+        <li class="nav-item">
+            <a href="{{ url_for('admin_data.data_table') }}" 
+               class="nav-link {% if 'admin_data' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-database"></i> Data Admin
+            </a>
+        </li>
+        {% endif %}
+
+        <!-- ADMIN - UPLOAD -->
+        {% if session.get("role") == "admin" %}
+        <li class="nav-item">
+            <a href="{{ url_for('upload.upload_excel') }}" class="nav-link {% if 'upload' in request.endpoint %}active{% endif %}">
+                <i class="fas fa-upload"></i> Upload Excel
+            </a>
+        </li>
+        {% endif %}
+
+        <!-- LOGOUT -->
+        <li class="nav-item mt-3">
+            <a href="{{ url_for('logout') }}" class="nav-link text-danger">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </a>
+        </li>
+
+    </ul>
+
+    <!-- User Info -->
+    <div class="user-info">
+        <div><i class="fas fa-user"></i> {{ session.get('user', 'Guest') }}</div>
+        <div class="small">
+            Role: <span class="badge badge-light">{{ session.get('role', 'guest')|upper }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- CONTENT -->
+<div class="content-wrapper">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show">
+                    {{ message }}
+                    <button type="button" class="close" data-dismiss="alert">
+                        <span>&times;</span>
+                    </button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    {% block content %}{% endblock %}
+</div>
+
+<script>
+    // Auto-close alerts setelah 5 detik
+    $(document).ready(function() {
+        setTimeout(function() {
+            $('.alert').alert('close');
+        }, 5000);
+    });
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

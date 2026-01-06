@@ -1,0 +1,487 @@
+<!-- data_sims.html -->
+{% extends "layout_sidebar.html" %}
+
+{% block content %}
+<h4>🗂️ Data SIMS</h4>
+
+<!-- Flash Messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="close" data-dismiss="alert">
+          <span>&times;</span>
+        </button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div class="card shadow-sm mt-3">
+    <div class="card-body">
+        <!-- STATUS INFO -->
+        <div id="statusAlert" class="alert alert-info">
+            <span id="statusText">Memuat data...</span>
+        </div>
+
+        <!-- BUTTONS -->
+        <div class="mb-3">
+            <button id="btnDownload" class="btn btn-success btn-sm">
+                📥 Unduh Data Filter
+            </button>
+            <button id="btnDownloadAll" class="btn btn-primary btn-sm ml-2">
+                📥 Unduh Semua Data
+            </button>
+            <button id="btnReload" class="btn btn-secondary btn-sm ml-2">
+                🔄 Muat Ulang
+            </button>
+            <div class="float-right">
+                <a href="{{ url_for('pemeriksaan.index') }}" class="btn btn-warning btn-sm">
+                    📝 Ke Pemeriksaan
+                </a>
+                {% if session.get('role') == 'admin' %}
+                <a href="{{ url_for('admin_data.data_table') }}" class="btn btn-info btn-sm ml-2">
+                    ⚙️ Admin Data
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- TABLE -->
+        <div class="table-responsive" style="max-height: 65vh;">
+            <table id="excelTable" class="table table-bordered table-striped table-hover" style="width:100%">
+                <thead class="thead-dark">
+                    <tr>
+                        {% for col in columns %}
+                            <th>{{ col }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Data akan dimuat oleh DataTables -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- INFO FOOTER -->
+        <div class="mt-3 text-muted small">
+            <div id="dataInfo">Memuat informasi data...</div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="sr-only">Loading...</span>
+                </div>
+                <h5 class="mt-3">Memproses...</h5>
+                <p id="loadingMessage" class="mb-0">Mohon tunggu</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSRF Token (jika menggunakan Flask-WTF) -->
+<meta name="csrf-token" content="{{ csrf_token if csrf_token else '' }}">
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let table;
+let isPostMethod = true; // Gunakan POST method untuk menghindari 414 error
+
+$(document).ready(function () {
+    // Initialize DataTable dengan POST method
+    initializeDataTable();
+    
+    // Setup event handlers
+    setupEventHandlers();
+    
+    // Auto-hide flash messages after 5 seconds
+    setTimeout(() => {
+        $('.alert:not(#statusAlert)').alert('close');
+    }, 5000);
+});
+
+function initializeDataTable() {
+    const apiUrl = isPostMethod ? "/data" : "/data-get";
+    
+    table = $('#excelTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: {
+            url: apiUrl,
+            type: isPostMethod ? "POST" : "GET",
+            contentType: isPostMethod ? "application/json" : "application/x-www-form-urlencoded",
+            data: isPostMethod ? function(d) {
+                // Format untuk POST
+                return JSON.stringify({
+                    draw: d.draw,
+                    start: d.start,
+                    length: d.length,
+                    "search[value]": d.search.value,
+                    "search[regex]": d.search.regex,
+                    "order[0][column]": d.order && d.order.length > 0 ? d.order[0].column : 0,
+                    "order[0][dir]": d.order && d.order.length > 0 ? d.order[0].dir : "asc"
+                });
+            } : function(d) {
+                // Format untuk GET
+                return d;
+            },
+            dataSrc: function (json) {
+                console.log("API Response:", json);
+                
+                if (json.error) {
+                    showStatus("Error loading data: " + json.error, "danger");
+                    updateDataInfo("Error loading data");
+                    return [];
+                }
+                
+                // Update status dan info
+                const total = json.recordsTotal || 0;
+                const filtered = json.recordsFiltered || 0;
+                const showing = json.data ? json.data.length : 0;
+                
+                let statusMsg = `Menampilkan ${showing} data`;
+                if (filtered !== total) {
+                    statusMsg += ` (difilter dari ${total} total data)`;
+                }
+                showStatus(statusMsg, "success");
+                
+                updateDataInfo(`Total: ${total} data | Filtered: ${filtered} data | Showing: ${showing} data`);
+                
+                return json.data || [];
+            },
+            error: function(xhr, error, thrown) {
+                console.error("AJAX Error:", xhr.responseText);
+                
+                // Coba switch method jika error 414
+                if (xhr.status === 414 && isPostMethod === false) {
+                    console.log("414 error detected, switching to POST method");
+                    isPostMethod = true;
+                    showStatus("Mengubah metode koneksi...", "warning");
+                    setTimeout(() => {
+                        table.destroy();
+                        initializeDataTable();
+                        table.ajax.reload();
+                    }, 1000);
+                } else {
+                    let errorMsg = "Error loading data";
+                    if (xhr.responseText) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            errorMsg = response.error || xhr.responseText.substring(0, 100);
+                        } catch (e) {
+                            errorMsg = xhr.responseText.substring(0, 100);
+                        }
+                    }
+                    showStatus(errorMsg, "danger");
+                    updateDataInfo("Connection error");
+                }
+            }
+        },
+        pageLength: 25,
+        lengthMenu: [[10, 25, 50, 100, 250], [10, 25, 50, 100, 250]],
+        scrollX: true,
+        scrollCollapse: true,
+        language: {
+            search: "Cari di semua kolom:",
+            lengthMenu: "Tampilkan _MENU_ data per halaman",
+            zeroRecords: "Tidak ada data yang ditemukan",
+            info: "Menampilkan _START_ sampai _END_ dari _TOTAL_ data",
+            infoEmpty: "Menampilkan 0 sampai 0 dari 0 data",
+            infoFiltered: "(difilter dari _MAX_ total data)",
+            paginate: {
+                first: "Pertama",
+                last: "Terakhir",
+                next: "›",
+                previous: "‹"
+            },
+            loadingRecords: "Memuat data...",
+            processing: "Memproses..."
+        },
+        initComplete: function(settings, json) {
+            console.log("DataTable initialized successfully");
+            
+            // Add custom search handler
+            const searchInput = $('.dataTables_filter input');
+            searchInput.attr('placeholder', 'Ketik untuk mencari...');
+            searchInput.css('width', '300px');
+            
+            // Debounce search untuk performa
+            let searchTimeout;
+            searchInput.on('keyup', function() {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    table.search(this.value).draw();
+                }, 500);
+            });
+        },
+        drawCallback: function(settings) {
+            // Style empty cells
+            $('td').each(function() {
+                const text = $(this).text().trim();
+                if (!text || text === 'nan' || text === 'None' || text === 'null') {
+                    $(this).html('<span class="text-muted">-</span>');
+                }
+            });
+            
+            // Update info
+            const api = this.api();
+            const pageInfo = api.page.info();
+            updateDataInfo(`Page ${pageInfo.page + 1} of ${pageInfo.pages} | Total: ${pageInfo.recordsTotal} data`);
+        }
+    });
+}
+
+function setupEventHandlers() {
+    // Download filtered data
+    $('#btnDownload').click(function () {
+        const searchValue = table.search();
+        
+        if (searchValue.length > 2000) {
+            showStatus("Pencarian terlalu panjang untuk filter. Mengunduh semua data.", "warning");
+            downloadAllData();
+            return;
+        }
+        
+        showLoading("Menyiapkan file dengan filter...");
+        
+        // Buat form untuk POST request
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/data-sims/download';
+        form.style.display = 'none';
+        
+        // Tambahkan input untuk search
+        const searchInput = document.createElement('input');
+        searchInput.type = 'hidden';
+        searchInput.name = 'search';
+        searchInput.value = searchValue;
+        form.appendChild(searchInput);
+        
+        // Tambahkan CSRF token
+        addCsrfToken(form);
+        
+        // Submit form
+        document.body.appendChild(form);
+        form.submit();
+        
+        // Hide loading after 3 seconds (in case download doesn't start)
+        setTimeout(hideLoading, 3000);
+    });
+    
+    // Download all data
+    $('#btnDownloadAll').click(function () {
+        if (confirm('Unduh semua data (tanpa filter)?')) {
+            showLoading("Menyiapkan semua data...");
+            window.location.href = '/data-sims/download-all';
+            setTimeout(hideLoading, 3000);
+        }
+    });
+    
+    // Reload data
+    $('#btnReload').click(function () {
+        showStatus("Memuat ulang data...", "info");
+        table.ajax.reload(null, false);
+    });
+}
+
+// Utility functions
+function showStatus(message, type = "info") {
+    const alert = $('#statusAlert');
+    const text = $('#statusText');
+    
+    alert.removeClass('alert-info alert-success alert-warning alert-danger');
+    alert.addClass('alert-' + type);
+    text.text(message);
+    
+    // Auto-hide success/info messages after 8 seconds
+    if (type === 'success' || type === 'info') {
+        setTimeout(() => {
+            if (text.text() === message) {
+                alert.removeClass('alert-' + type).addClass('alert-info');
+                text.text('Siap');
+            }
+        }, 8000);
+    }
+}
+
+function updateDataInfo(message) {
+    $('#dataInfo').text(message);
+}
+
+function showLoading(message = "Memproses...") {
+    $('#loadingMessage').text(message);
+    $('#loadingModal').modal('show');
+}
+
+function hideLoading() {
+    $('#loadingModal').modal('hide');
+}
+
+function addCsrfToken(form) {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]');
+    if (csrfToken && csrfToken.content) {
+        const csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrf_token';
+        csrfInput.value = csrfToken.content;
+        form.appendChild(csrfInput);
+    }
+}
+
+function downloadAllData() {
+    showLoading("Mengunduh semua data...");
+    window.location.href = '/data-sims/download-all';
+    setTimeout(hideLoading, 3000);
+}
+
+// Handle browser back/forward
+window.addEventListener('pageshow', function(event) {
+    if (event.persisted) {
+        table.ajax.reload(null, false);
+    }
+});
+
+// Handle window resize
+let resizeTimer;
+$(window).on('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+        table.columns.adjust();
+    }, 250);
+});
+</script>
+
+<style>
+/* Table styles */
+.table-responsive {
+    overflow: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+}
+
+table.dataTable {
+    margin-bottom: 0 !important;
+}
+
+table.dataTable thead th {
+    position: sticky;
+    top: 0;
+    background-color: #343a40;
+    color: white;
+    z-index: 10;
+    vertical-align: middle;
+    font-weight: 600;
+}
+
+table.dataTable tbody td {
+    vertical-align: middle;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+table.dataTable tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.05);
+}
+
+/* DataTables custom styling */
+.dataTables_wrapper {
+    padding: 0;
+}
+
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_filter,
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_paginate {
+    padding: 12px;
+    margin: 0;
+}
+
+.dataTables_wrapper .dataTables_filter input {
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    padding: 0.375rem 0.75rem;
+    transition: border-color 0.15s ease-in-out;
+}
+
+.dataTables_wrapper .dataTables_filter input:focus {
+    border-color: #80bdff;
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Button styling */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border-radius: 0.2rem;
+}
+
+/* Status alert */
+#statusAlert {
+    padding: 0.5rem 1rem;
+    margin-bottom: 1rem;
+    border-radius: 0.25rem;
+}
+
+/* Loading modal */
+.modal-backdrop {
+    opacity: 0.5 !important;
+}
+
+/* Scrollbar styling */
+.table-responsive::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 5px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 5px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .dataTables_wrapper .dataTables_length,
+    .dataTables_wrapper .dataTables_filter {
+        float: none !important;
+        text-align: left !important;
+        margin-bottom: 10px;
+    }
+    
+    .dataTables_wrapper .dataTables_filter input {
+        width: 100% !important;
+    }
+    
+    .table-responsive {
+        font-size: 0.9rem;
+    }
+    
+    .btn-sm {
+        margin-bottom: 5px;
+        display: inline-block;
+    }
+}
+</style>
+{% endblock %}
