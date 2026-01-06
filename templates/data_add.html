@@ -1,0 +1,54 @@
+{% extends "layout_sidebar.html" %}
+{% block title %}Tambah Data Baru{% endblock %}
+
+{% block content %}
+<div class="container mt-3">
+    <h4><i class="fas fa-plus-circle"></i> Tambah Data Baru</h4>
+    <hr>
+    
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <form method="post">
+                {% for col in columns %}
+                <div class="form-group">
+                    <label>{{ col }}</label>
+                    <input type="text" 
+                           name="{{ col }}" 
+                           class="form-control" 
+                           placeholder="{{ col }} (opsional)">
+                    <small class="text-muted">Kosongkan jika tidak diperlukan</small>
+                </div>
+                {% endfor %}
+                
+                <div class="d-flex gap-2 mt-4">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Simpan Data
+                    </button>
+                    <a href="{{ url_for('admin_data.data_table') }}" class="btn btn-secondary">
+                        <i class="fas fa-times"></i> Batal
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Info -->
+    <div class="alert alert-info mt-3">
+        <h6><i class="fas fa-info-circle"></i> Informasi:</h6>
+        <ul class="mb-0">
+            <li>Semua field bersifat opsional (boleh kosong)</li>
+            <li>Nomor akan dibuat otomatis berdasarkan urutan data</li>
+            <li>Data akan disimpan ke file Excel (<code>data.xlsx</code>)</li>
+        </ul>
+    </div>
+</div>
+
+<style>
+.form-control {
+    max-width: 500px;
+}
+.card {
+    border: 1px solid #dee2e6;
+}
+</style>
+{% endblock %}
