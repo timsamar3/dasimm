@@ -1,5 +1,5 @@
-﻿__pycache__/
-.venv/
-.env
-.vscode/
-*.pyc
+flask
+pandas
+openpyxl
+gunicorn
+Werkzeug
